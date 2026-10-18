@@ -30,15 +30,22 @@ const RULES =
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fc(path, body) {
+async function fc(path, body, attempt = 0) {
   const r = await fetch(`https://api.firecrawl.dev/v2/${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${E.FIRECRAWL_API_KEY}` },
     body: JSON.stringify(body),
   });
-  const j = await r.json();
-  if (!r.ok || j.success === false) throw new Error(j.error || "Firecrawl error");
-  return j;
+  const raw = await r.text();
+  let j = null;
+  try { j = JSON.parse(raw); } catch {}
+  if (r.ok && j && j.success !== false) return j;
+  // rate limit or temporary server error: wait and retry
+  if ((r.status === 429 || r.status >= 500) && attempt < 4) {
+    await sleep(5000 * (attempt + 1));
+    return fc(path, body, attempt + 1);
+  }
+  throw new Error(j?.error || `Firecrawl returned ${r.status}`);
 }
 
 async function callProvider(p, prompt) {

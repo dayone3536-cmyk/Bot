@@ -23,13 +23,32 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let text = "";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let header = "", body = "", sources = [], done = [];
 
-async function post(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error || "Request failed");
-  return j;
+// content first, source list at the very end
+function full() {
+  const list = sources.map((s, i) =>
+    `${i + 1}. ${s.title} — ${s.site}${done[i] === false ? " (could not be read)" : ""}\n   ${s.url}`).join("\n");
+  return header + body + (sources.length ? `\n\n${"=".repeat(50)}\nSOURCES (${sources.length})\n${"=".repeat(50)}\n${list}\n` : "");
+}
+
+async function post(url, data, tries = 3) {
+  let lastStatus = null;
+  for (let t = 0; t < tries; t++) {
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+      lastStatus = r.status;
+      let j = null;
+      try { j = JSON.parse(await r.text()); } catch {}
+      if (j) {
+        if (r.ok) return j;
+        throw Object.assign(new Error(j.error || "Request failed"), { final: true });
+      }
+    } catch (e) { if (e.final) throw e; }
+    await sleep(4000);
+  }
+  throw new Error(lastStatus ? `Server returned ${lastStatus} (not JSON; it may be waking up or timing out)` : "Network error");
 }
 
 $("go").onclick = async () => {
@@ -37,28 +56,28 @@ $("go").onclick = async () => {
   if (!topic) return;
   $("go").disabled = true;
   $("dl").hidden = true;
-  text = `RESEARCH: ${topic}\nGenerated ${new Date().toLocaleString()}\nFull original text, formatted only. All credit to the original authors.\n`;
+  header = `RESEARCH: ${topic}\nGenerated ${new Date().toLocaleString()}\nFull original text, formatted only. All credit to the original authors.\n`;
+  body = ""; sources = []; done = [];
   $("out").hidden = false;
-  $("out").textContent = text;
+  $("out").textContent = full();
   try {
     $("status").textContent = "Searching…";
-    const { sources } = await post("/api/sources", { topic });
+    sources = (await post("/api/sources", { topic })).sources;
     if (!sources.length) throw new Error("No sources found");
-
-    text += `\nSOURCES (${sources.length})\n` + sources.map((s, i) => `${i + 1}. ${s.title} — ${s.site}\n   ${s.url}`).join("\n") + "\n";
-    $("out").textContent = text;
-    $("dl").hidden = false;
 
     for (let i = 0; i < sources.length; i++) {
       const s = sources[i];
       $("status").textContent = `Reading ${i + 1}/${sources.length}: ${s.title}`;
-      let body;
-      try { body = (await post("/api/read", s)).text; }
-      catch (e) { body = `(couldn't read this one: ${e.message})`; }
-      text += `\n\n${"=".repeat(50)}\nSOURCE ${i + 1}/${sources.length}\nTitle: ${s.title}\nCredit: ${s.site}\nLink: ${s.url}\n${"=".repeat(50)}\n\n${body}\n`;
-      $("out").textContent = text;
+      let text;
+      try { text = (await post("/api/read", s)).text; done[i] = true; }
+      catch (e) { text = `(couldn't read this one: ${e.message})`; done[i] = false; }
+      body += `\n\n${"=".repeat(50)}\nSOURCE ${i + 1}/${sources.length}\nTitle: ${s.title}\nCredit: ${s.site}\nLink: ${s.url}\n${"=".repeat(50)}\n\n${text}\n`;
+      $("out").textContent = full();
+      $("dl").hidden = false;
+      $("dl").textContent = `Download .txt (${i + 1}/${sources.length} read so far)`;
     }
-    $("status").textContent = "Done.";
+    $("dl").textContent = "Download .txt (complete)";
+    $("status").textContent = `Done. ${done.filter(Boolean).length}/${sources.length} sources read.`;
   } catch (e) {
     $("status").textContent = "Error: " + e.message;
   }
@@ -67,7 +86,7 @@ $("go").onclick = async () => {
 
 $("dl").onclick = () => {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.href = URL.createObjectURL(new Blob([full()], { type: "text/plain" }));
   a.download = ($("topic").value.trim().replace(/\W+/g, "-").slice(0, 40) || "research") + ".txt";
   a.click();
 };
