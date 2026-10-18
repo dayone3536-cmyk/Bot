@@ -11,7 +11,7 @@ app.get("/", (req, res) => res.sendFile(page, { root: process.cwd() }));
 const E = process.env;
 const provider = E.FORMAT_PROVIDER || (E.GEMINI_API_KEY ? "gemini" : "anthropic");
 const model =
-  E.FORMAT_MODEL || (provider === "gemini" ? "gemini-2.0-flash" : "claude-haiku-5-5");
+  E.FORMAT_MODEL || (provider === "gemini" ? "gemini-3.8-flash" : "claude-haiku-5-5");
 
 const RULES =
   "You are a text formatter, not a writer. Reformat the text below so it is clean and easy to read: " +
