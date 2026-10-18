@@ -1,9 +1,12 @@
 import express from "express";
+import { existsSync } from "fs";
 import { YoutubeTranscript } from "youtube-transcript";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
-app.use(express.static("public"));
+// works whether index.html is in the repo root or in public/
+const page = existsSync("public/index.html") ? "public/index.html" : "index.html";
+app.get("/", (req, res) => res.sendFile(page, { root: process.cwd() }));
 
 const E = process.env;
 const provider = E.FORMAT_PROVIDER || (E.GEMINI_API_KEY ? "gemini" : "anthropic");
