@@ -92,6 +92,30 @@ async function llm(prompt) {
   throw new Error(lastErr);
 }
 
+// Instant, free, no-AI formatting: markdown -> clean plain text. Nothing is summarized or reworded.
+function cleanLocal(raw, kind) {
+  if (kind === "video") {
+    const words = raw.replace(/\s+/g, " ").trim().split(" ");
+    const paras = [];
+    for (let i = 0; i < words.length; i += 100) paras.push(words.slice(i, i + 100).join(" "));
+    return paras.join("\n\n");
+  }
+  return raw
+    .replace(/!\[[^\]]*\]\((?:[^()]|\([^)]*\))*\)/g, "")
+    .replace(/\[\s*edit\s*\]\((?:[^()]|\([^)]*\))*\)/gi, "")
+    .replace(/\[([^\]]+)\]\((?:[^()]|\([^)]*\))*\)/g, "$1")
+    .replace(/\[\s*edit\s*\]/gi, "")
+    .replace(/\[\d{1,3}\]/g, "")
+    .replace(/\\([_*\[\]()#>~`-])/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/^#{1,2}\s+(.+)$/gm, (_, t) => "\n" + t.toUpperCase() + "\n")
+    .replace(/^#{3,6}\s+(.+)$/gm, "\n$1")
+    .replace(/^\s*[*+]\s+/gm, "- ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // split into ~N-word chunks without losing any whitespace/newlines
 function chunk(raw, n = Number(E.CHUNK_WORDS) || 1500) {
   const tokens = raw.match(/\S+\s*/g) || [];
@@ -168,16 +192,22 @@ app.post("/api/read", async (req, res) => {
     }
     if (!raw || raw.length < 200) throw new Error("no readable text");
 
-    const note =
-      s.kind === "video"
-        ? "\n\nThis is a raw video transcript: add punctuation, capitalization and paragraph breaks only. Keep every word.\n\n"
-        : "\n\n";
-    let out = "";
-    for (const c of chunk(raw)) out += (await llm(RULES + note + c)) + "\n\n";
+    let out;
+    if (E.FORMAT_WITH_AI === "true" && providers.length) {
+      // optional AI pass (slow, uses free-tier tokens)
+      const note =
+        s.kind === "video"
+          ? "\n\nThis is a raw video transcript: add punctuation, capitalization and paragraph breaks only. Keep every word.\n\n"
+          : "\n\n";
+      out = "";
+      for (const c of chunk(raw)) out += (await llm(RULES + note + c)) + "\n\n";
+    } else {
+      out = cleanLocal(raw, s.kind);
+    }
     res.json({ text: out.trim() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.listen(E.PORT || 3000, () => console.log(`running (formatters: ${providers.map((p) => p.name + "/" + p.model).join(", ") || "NONE"})`));
+app.listen(E.PORT || 3000, () => console.log(`running (AI formatting ${E.FORMAT_WITH_AI === "true" ? "ON" : "off, local cleanup"}; providers: ${providers.map((p) => p.name + "/" + p.model).join(", ") || "NONE"})`));
