@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Bot</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px 16px; background: #111; color: #eee; }
+  input { width: 100%; box-sizing: border-box; padding: 14px; font-size: 16px; border-radius: 10px; border: 1px solid #444; background: #1b1b1b; color: #eee; }
+  button { margin-top: 10px; padding: 14px 18px; font-size: 16px; border: 0; border-radius: 10px; background: #4f8cff; color: #fff; width: 100%; }
+  button:disabled { opacity: .5; }
+  #status { margin-top: 12px; color: #aaa; font-size: 14px; }
+  pre { white-space: pre-wrap; word-wrap: break-word; background: #1b1b1b; padding: 14px; border-radius: 10px; font-size: 14px; font-family: inherit; line-height: 1.55; }
+</style>
+</head>
+<body>
+  <h2>Research Bot</h2>
+  <input id="topic" placeholder="I want to learn about the game industry">
+  <button id="go">Find &amp; read sources</button>
+  <div id="status"></div>
+  <button id="dl" hidden>Download .txt</button>
+  <pre id="out" hidden></pre>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let text = "";
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || "Request failed");
+  return j;
+}
+
+$("go").onclick = async () => {
+  const topic = $("topic").value.trim();
+  if (!topic) return;
+  $("go").disabled = true;
+  $("dl").hidden = true;
+  text = `RESEARCH: ${topic}\nGenerated ${new Date().toLocaleString()}\nFull original text, formatted only. All credit to the original authors.\n`;
+  $("out").hidden = false;
+  $("out").textContent = text;
+  try {
+    $("status").textContent = "Searching…";
+    const { sources } = await post("/api/sources", { topic });
+    if (!sources.length) throw new Error("No sources found");
+
+    text += `\nSOURCES (${sources.length})\n` + sources.map((s, i) => `${i + 1}. ${s.title} — ${s.site}\n   ${s.url}`).join("\n") + "\n";
+    $("out").textContent = text;
+    $("dl").hidden = false;
+
+    for (let i = 0; i < sources.length; i++) {
+      const s = sources[i];
+      $("status").textContent = `Reading ${i + 1}/${sources.length}: ${s.title}`;
+      let body;
+      try { body = (await post("/api/read", s)).text; }
+      catch (e) { body = `(couldn't read this one: ${e.message})`; }
+      text += `\n\n${"=".repeat(50)}\nSOURCE ${i + 1}/${sources.length}\nTitle: ${s.title}\nCredit: ${s.site}\nLink: ${s.url}\n${"=".repeat(50)}\n\n${body}\n`;
+      $("out").textContent = text;
+    }
+    $("status").textContent = "Done.";
+  } catch (e) {
+    $("status").textContent = "Error: " + e.message;
+  }
+  $("go").disabled = false;
+};
+
+$("dl").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.download = ($("topic").value.trim().replace(/\W+/g, "-").slice(0, 40) || "research") + ".txt";
+  a.click();
+};
+</script>
+</body>
+</html>
